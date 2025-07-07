@@ -1,86 +1,58 @@
 import os
-from colorama import Fore, Back, Style, init
-import logging
-from datetime import datetime
+import subprocess
+import shutil
 import sys
+from pathlib import Path
 
-# Инициализация colorama
-init(autoreset=True)
-
-# Настройка логирования с UTF-8
-def setup_logging():
-    logging.basicConfig(
-        filename='system_info.log',
-        level=logging.INFO,
-        format='%(asctime)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        encoding='utf-8'  # Явное указание кодировки
-    )
-    # Для старых версий Python (менее 3.9) используем хак:
-    if sys.version_info < (3, 9):
-        handler = logging.FileHandler('system_info.log', encoding='utf-8')
-        handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', '%Y-%m-%d %H:%M:%S'))
-        logging.getLogger().addHandler(handler)
-        logging.getLogger().setLevel(logging.INFO)
-
-setup_logging()
-
-def log_info(message):
-    """Логирует информацию и выводит её в консоль"""
-    # Удаляем цветовые коды для лог-файла
-    clean_message = re.sub(r'\x1b\[[0-9;]*m', '', message)
-    logging.info(clean_message)
-    print(message)
-
-def windows_collect_info():
-    """Собирает информацию о системе Windows"""
-    def get_wmic_data(query, description):
-        """Получает данные из WMIC и форматирует их"""
-        try:
-            result = os.popen(f"wmic {query}").read()
-            # Исправляем кодировку вывода WMIC
-            if sys.stdout.encoding != 'utf-8':
-                result = result.encode(sys.stdout.encoding, errors='replace').decode('utf-8', errors='replace')
-            return f"{Fore.GREEN}{description}:\n{result.strip()}"
-        except Exception as e:
-            return f"{Fore.RED}Ошибка при получении {description}: {str(e).encode('utf-8', errors='replace').decode('utf-8')}"
-
-    # Получаем информацию
-    sections = [
-        ("cpu get name", "cpu"),
-        ("memorychip get capacity", "ram"),
-        ("path win32_videocontroller get name", "gpu"),
-        ("diskdrive get model,size", "hdd")
-    ]
-
-    for query, description in sections:
-        info = get_wmic_data(query, description)
-        log_info(info)
-
-def system_definition():
-    """Определяет систему и запускает сбор информации"""
-    print(f"{Fore.CYAN}Hello user, pick your system:")
-    print(f"{Fore.YELLOW}1. Windows")
-    print(f"{Fore.YELLOW}2. Linux")
+def clone_and_run(repo_url, script_path, clone_dir="cloned_repo"):
+    """
+    Клонирует репозиторий и выполняет указанный скрипт из него
     
+    :param repo_url: URL GitHub репозитория
+    :param script_path: Путь к скрипту внутри репозитория
+    :param clone_dir: Директория для клонирования (по умолчанию 'cloned_repo')
+    """
     try:
-        pick = input(f"{Fore.WHITE}yout pick: ")
-        if pick == "1":
-            log_info("\nPick windows...\n")
-            windows_collect_info()
-        elif pick == "2":
-            log_info("\nlinux not supported\n")
-        else:
-            log_info(f"{Fore.RED}ERROR")
+        # Удаляем директорию, если она уже существует
+        if os.path.exists(clone_dir):
+            print(f"Удаляем существующую директорию {clone_dir}...")
+            shutil.rmtree(clone_dir)
+        
+        # Клонируем репозиторий
+        print(f"Клонируем репозиторий {repo_url}...")
+        subprocess.run(["git", "clone", repo_url, clone_dir], check=True)
+        
+        # Полный путь к скрипту
+        full_script_path = Path(clone_dir) / script_path
+        
+        if not full_script_path.exists():
+            raise FileNotFoundError(f"Скрипт {full_script_path} не найден в репозитории")
+        
+        print(f"Запускаем скрипт {full_script_path}...")
+        
+        # Переходим в директорию репозитория
+        os.chdir(clone_dir)
+        
+        # Запускаем скрипт (предполагаем, что это Python скрипт)
+        subprocess.run([sys.executable, str(script_path)], check=True)
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Ошибка при выполнении команды: {e}")
     except Exception as e:
-        log_info(f"{Fore.RED}ERROR: {str(e).encode('utf-8', errors='replace').decode('utf-8')}")
+        print(f"Произошла ошибка: {e}")
+    finally:
+        # Возвращаемся в исходную директорию
+        os.chdir("..")
 
 if __name__ == "__main__":
-    import re
-    try:
-        system_definition()
-    except Exception as e:
-        logging.error(f"CRITICAL ERROR: {str(e).encode('utf-8', errors='replace').decode('utf-8')}")
-        print(f"{Fore.RED}CRITICAL ERROR: {e}")
-    finally:
-        print(Style.RESET_ALL)
+    # Пример использования
+    if len(sys.argv) < 3:
+        print("Использование: python clone_and_run.py <repo_url> <script_path> [clone_dir]")
+        print("Пример: python clone_and_run.py https://github.com/user/repo.git scripts/main.py my_repo")
+        sys.exit(1)
+    
+    repo_url = sys.argv[1]
+    script_path = sys.argv[2]
+    clone_dir = sys.argv[3] if len(sys.argv) > 3 else "cloned_repo"
+    
+    clone_and_run(repo_url, script_path, clone_dir)
